@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>CubeMaster Pro</title>
+    <style>
+        :root {
+            /* Sizing based on device */
+            --cs: 75px; 
+            --ss: 71px; 
+            --is: 65px;
+            
+            /* Themes - Default Dark Neon */
+            --bg-color: #0a0a1a;
+            --accent: #00f0ff;
+            --text: #ffffff;
+            --panel-bg: rgba(20, 20, 40, 0.7);
+            
+            /* Rubik's Colors */
+            --up: #ffffff;
+            --down: #ffdd00;
+            --front: #00cc00;
+            --back: #0066ff;
+            --right: #ff0000;
+            --left: #ff8800;
+            --cubie-bg: #111;
+        }
+
+        @media (min-width: 768px) {
+            :root { --cs: 90px; --ss: 86px; --is: 80px; }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+        body {
+            background: var(--bg-color);
+            color: var(--text);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            transition: background 0.5s ease;
+        }
+
+        /* Canvas Background */
+        #bg-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.5; }
+
+        /* UI Layout */
+        .top-bar { display: flex; justify-content: space-between; padding: 15px 20px; background: var(--panel-bg); backdrop-filter: blur(10px); z-index: 10; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .stats { display: flex; gap: 15px; font-weight: bold; font-variant-numeric: tabular-nums; }
+        .stats span { text-shadow: 0 0 5px var(--accent); }
+
+        .scene { flex: 1; display: flex; align-items: center; justify-content: center; perspective: 1000px; touch-action: none; position: relative; }
+        
+        /* Cube Core */
+        .cube-wrapper {
+            width: 0; height: 0;
+            transform-style: preserve-3d;
+            transform: rotateX(-25deg) rotateY(45deg); /* Initial Camera */
+            will-change: transform;
+        }
+
+        .layer-rotator {
+            width: 0; height: 0;
+            transform-style: preserve-3d;
+        }
+
+        .cubie {
+            position: absolute;
+            width: var(--cs); height: var(--cs);
+            margin-left: calc(var(--cs) / -2); margin-top: calc(var(--cs) / -2);
+            transform-style: preserve-3d;
+            will-change: transform;
+        }
+
+        .face {
+            position: absolute;
+            width: var(--cs); height: var(--cs);
+            background: var(--cubie-bg);
+            border: 2px solid #000;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            backface-visibility: hidden;
+        }
+
+        .st {
+            width: var(--is); height: var(--is);
+            border-radius: 5px;
+            background: #222; /* Default off-color */
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* Face Positions */
+        .face-up { transform: rotateX(90deg) translateZ(calc(var(--cs) / 2)); }
+        .face-down { transform: rotateX(-90deg) translateZ(calc(var(--cs) / 2)); }
+        .face-front { transform: rotateY(0deg) translateZ(calc(var(--cs) / 2)); }
+        .face-back { transform: rotateY(180deg) translateZ(calc(var(--cs) / 2)); }
+        .face-right { transform: rotateY(90deg) translateZ(calc(var(--cs) / 2)); }
+        .face-left { transform: rotateY(-90deg) translateZ(calc(var(--cs) / 2)); }
+
+        /* Controls */
+        .controls-area { background: var(--panel-bg); backdrop-filter: blur(10px); padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); z-index: 10; }
+        .move-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 15px; }
+        .move-grid button, .action-btn {
+            background: rgba(255,255,255,0.1); border: 1px solid var(--accent); color: var(--text);
+            padding: 10px 15px; border-radius: 8px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s; touch-action: manipulation;
+        }
+        .move-grid button:active, .action-btn:active { background: var(--accent); color: #000; transform: scale(0.95); }
+        .actions-grid { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        
+        /* Overlays & Toasts */
+        .toast { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #000; padding: 10px 20px; border-radius: 20px; font-weight: bold; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100; }
+        .footer { text-align: center; font-size: 0.8rem; padding: 5px; opacity: 0.6; }
+        .footer a { color: var(--accent); text-decoration: none; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+        }
+
+        /* Intro Screen */
+        #intro { position: absolute; top:0; left:0; width:100%; height:100%; background: var(--bg-color); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #intro h1 { font-size: 3rem; margin-bottom: 20px; text-shadow: 0 0 20px var(--accent); color: var(--accent); }
+        #start-btn { font-size: 1.5rem; padding: 15px 40px; background: transparent; border: 2px solid var(--accent); color: var(--text); border-radius: 30px; cursor: pointer; box-shadow: 0 0 15px var(--accent); transition: 0.3s; }
+        #start-btn:hover { background: var(--accent); color: #000; }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <div id="intro">
+        <h1>CubeMaster Pro</h1>
+        <button id="start-btn">START</button>
+        <div class="footer" style="margin-top: 30px;">
+            
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Message</div>
+
+    <div class="top-bar">
+        <div class="logo" style="color: var(--accent); font-weight: bold; font-size: 1.2rem;">🎲 CubeMaster</div>
+        <div class="stats">
+            <span>⏱️ <span id="timer">00:00.0</span></span>
+            <span>Moves: <span id="move-count">0</span></span>
+            <span style="opacity:0.5; font-size:0.8rem; line-height: 1.8;">FPS: <span id="fps">60</span></span>
+        </div>
+    </div>
+
+    <div class="scene" id="scene">
+        <div class="cube-wrapper" id="cube">
+            </div>
+    </div>
+
+    <div class="controls-area">
+        <div class="move-grid" id="move-btns">
+            </div>
+        <div class="actions-grid">
+            <button class="action-btn" id="btn-shuffle">🔀 Shuffle</button>
+            <button class="action-btn" id="btn-solve">🤖 Solve</button>
+            <button class="action-btn" id="btn-undo">↩️ Undo</button>
+            <button class="action-btn" id="btn-reset">🔄 Reset</button>
+        </div>
+        <div class="footer">
+            
+    </div>
+
+    <script>
+        console.log(`
+        🎲 CubeMaster Pro - Loaded
+        👨‍💻 Dev: @Yuvzen
+        🔗 t.me/YSCoder
+        `);
+
+        // --- PWA Setup ---
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                self.addEventListener('install', e => self.skipWaiting());
+                self.addEventListener('fetch', e => {
+                    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+                });
+            `;
+            const blob = new Blob([swCode], {type:'application/javascript'});
+            navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(err => console.warn('PWA SW failed:', err));
+        }
+
+        // --- Config & State ---
+        const faceColors = { up: 'var(--up)', down: 'var(--down)', front: 'var(--front)', back: 'var(--back)', right: 'var(--right)', left: 'var(--left)' };
+        let settings = JSON.parse(localStorage.getItem('cms_settings') || '{"snd":true, "vib":true, "spd":250}');
+        let isAnimating = false;
+        let moveQueue = [];
+        let history = [];
+        let scrambleHistory = [];
+
+        // --- Audio System ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if(!settings.snd) return;
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            if(type === 'move') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(500, now);
+                osc.frequency.exponentialRampToValueAtTime(180, now + 0.1);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'solve') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(554.37, now + 0.1);
+                osc.frequency.setValueAtTime(659.25, now + 0.2);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.5);
+                osc.start(now); osc.stop(now + 0.5);
+            }
+        }
+
+        function vibrate(ms) {
+            if(navigator.vibrate && settings.vib) navigator.vibrate(ms);
+        }
+
+        // --- Background Canvas ---
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        function initBg() {
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            particles = Array.from({length: 40}, () => ({
+                x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+                s: Math.random() * 2 + 1, vx: (Math.random()-0.5), vy: (Math.random()-0.5)
+            }));
+        }
+        function drawBg() {
+            ctx.clearRect(0,0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(0, 240, 255, 0.5)';
+            particles.forEach(p => {
+                p.x += p.vx; p.y += p.vy;
+                if(p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                if(p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
+            });
+            requestAnimationFrame(drawBg);
+        }
+        window.addEventListener('resize', initBg);
+        initBg(); drawBg();
+
+        // --- Cube Engine ---
+        const cubeEl = document.getElementById('cube');
+        let cubies = [];
+
+        function initCube() {
+            cubeEl.innerHTML = '';
+            cubies = [];
+            for(let x=-1; x<=1; x++) {
+                for(let y=-1; y<=1; y++) {
+                    for(let z=-1; z<=1; z++) {
+                        if(x===0 && y===0 && z===0) continue; // Skip core
+                        
+                        const el = document.createElement('div');
+                        el.className = 'cubie';
+                        el.dataset.x = x; el.dataset.y = y; el.dataset.z = z;
+                        
+                        // Default coordinate transformation
+                        el.style.transform = `translate3d(calc(${x} * var(--cs)), calc(${y} * var(--cs)), calc(${z} * var(--cs)))`;
+
+                        const faces = ['up','down','front','back','right','left'];
+                        faces.forEach(f => {
+                            const face = document.createElement('div');
+                            face.className = `face face-${f}`;
+                            const st = document.createElement('div');
+                            st.className = 'st';
+                            
+                            // Assign correct colors based on position; explicitly set #222 for interior faces
+                            let color = '#222';
+                            if(f==='up'    && y===-1) color = faceColors.up;
+                            if(f==='down'  && y=== 1) color = faceColors.down;
+                            if(f==='front' && z=== 1) color = faceColors.front;
+                            if(f==='back'  && z===-1) color = faceColors.back;
+                            if(f==='right' && x=== 1) color = faceColors.right;
+                            if(f==='left'  && x===-1) color = faceColors.left;
+                            st.style.background = color;
+                            
+                            face.appendChild(st);
+                            el.appendChild(face);
+                        });
+                        
+                        cubeEl.appendChild(el);
+                        cubies.push({ x, y, z, el });
+                    }
+                }
+            }
+        }
+
+        // --- Move Logic ---
+        const parseMove = (move) => {
+            const moves = {
+                'U': { axis: 'y', layer: -1, angle: -90 }, "U'": { axis: 'y', layer: -1, angle: 90 },
+                'D': { axis: 'y', layer: 1, angle: 90 }, "D'": { axis: 'y', layer: 1, angle: -90 },
+                'L': { axis: 'x', layer: -1, angle: -90 }, "L'": { axis: 'x', layer: -1, angle: 90 },
+                'R': { axis: 'x', layer: 1, angle: 90 }, "R'": { axis: 'x', layer: 1, angle: -90 },
+                'F': { axis: 'z', layer: 1, angle: 90 }, "F'": { axis: 'z', layer: 1, angle: -90 },
+                'B': { axis: 'z', layer: -1, angle: -90 }, "B'": { axis: 'z', layer: -1, angle: 90 },
+                // Middle layer moves
+                'M': { axis: 'x', layer: 0, angle: -90 }, "M'": { axis: 'x', layer: 0, angle: 90 },
+                'E': { axis: 'y', layer: 0, angle: 90 }, "E'": { axis: 'y', layer: 0, angle: -90 },
+                'S': { axis: 'z', layer: 0, angle: 90 }, "S'": { axis: 'z', layer: 0, angle: -90 }
+            };
+            return moves[move];
+        };
+
+        const cycleMap = {
+            x: ['face-front', 'face-up', 'face-back', 'face-down'],
+            y: ['face-front', 'face-left', 'face-back', 'face-right'],
+            z: ['face-up', 'face-right', 'face-down', 'face-left']
+        };
+
+        // Instead of complex matrix transforms for color swapping, 
+        // we rotate a temporary wrapper layer, then re-render logical state
+        async function applyMove(moveStr, duration = settings.spd) {
+            if(isAnimating) return new Promise(r => setTimeout(() => r(applyMove(moveStr, duration)), 50));
+            isAnimating = true;
+            
+            const move = parseMove(moveStr);
+            if(!move) { isAnimating = false; return; }
+
+            // 1. Group active cubies
+            const activeCubies = cubies.filter(c => c[move.axis] === move.layer);
+            
+            // Create temporary rotator
+            const rotator = document.createElement('div');
+            rotator.className = 'layer-rotator';
+            cubeEl.appendChild(rotator);
+            
+            activeCubies.forEach(c => rotator.appendChild(c.el));
+
+            playSound('move');
+            vibrate(10);
+
+            // 2. Animate
+            const start = performance.now();
+            return new Promise(resolve => {
+                function animate(time) {
+                    let progress = (time - start) / duration;
+                    if(progress > 1) progress = 1;
+                    
+                    // Ease in out cubic
+                    const ease = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+                    const currentAngle = ease * move.angle;
+                    
+                    rotator.style.transform = `rotate${move.axis.toUpperCase()}(${currentAngle}deg)`;
+                    
+                    if(progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        // 3. Finalize: Update logical coordinates and color classes
+                        finalizeMove(activeCubies, move);
+                        
+                        // Cleanup
+                        activeCubies.forEach(c => cubeEl.appendChild(c.el));
+                        rotator.remove();
+                        isAnimating = false;
+                        
+                        history.push(moveStr);
+                        document.getElementById('move-count').innerText = history.length;
+                        resolve();
+                    }
+                }
+                requestAnimationFrame(animate);
+            });
+        }
+
+        function finalizeMove(activeCubies, move) {
+            // Update logical coordinates (90 deg rotation)
+            const dir = Math.sign(move.angle);
+            activeCubies.forEach(c => {
+                let tempX = c.x, tempY = c.y, tempZ = c.z;
+                if(move.axis === 'x') { c.y = tempZ * -dir; c.z = tempY * dir; }
+                if(move.axis === 'y') { c.x = tempZ * dir; c.z = tempX * -dir; }
+                if(move.axis === 'z') { c.x = tempY * -dir; c.y = tempX * dir; }
+                
+                // Update DOM position
+                c.el.style.transform = `translate3d(calc(${c.x} * var(--cs)), calc(${c.y} * var(--cs)), calc(${c.z} * var(--cs)))`;
+                
+                // Swap sticker colors physically
+                swapColors(c.el, move.axis, dir);
+            });
+        }
+
+        function swapColors(el, axis, dir) {
+            const faces = cycleMap[axis];
+            const colors = faces.map(f => el.querySelector(`.${f} .st`)?.style.background || '#222');
+            
+            // Y-axis CSS rotation direction is inverted vs X and Z axes
+            // (CSS rotateY uses opposite hand-rule relative to the cube's logical Y axis)
+            const effectiveDir = axis === 'y' ? -dir : dir;
+            
+            // Shift array based on direction
+            if(effectiveDir > 0) colors.unshift(colors.pop());
+            else colors.push(colors.shift());
+            
+            faces.forEach((f, i) => {
+                const st = el.querySelector(`.${f} .st`);
+                if(st) st.style.background = colors[i];
+            });
+        }
+
+        // --- Controls UI ---
+        const moveBtns = document.getElementById('move-btns');
+        const movesList = ['U',"U'",'D',"D'",'L',"L'",'R',"R'",'F',"F'",'B',"B'",'M',"M'",'E',"E'",'S',"S'"];
+        movesList.forEach(m => {
+            const btn = document.createElement('button');
+            btn.innerText = m;
+            btn.onclick = () => applyMove(m);
+            moveBtns.appendChild(btn);
+        });
+
+        // --- Camera System ---
+        let camRotX = -25, camRotY = 45;
+        let isDragging = false, lastMouseX, lastMouseY;
+        
+        const scene = document.getElementById('scene');
+        
+        function updateCamera() {
+            cubeEl.style.transform = `rotateX(${camRotX}deg) rotateY(${camRotY}deg)`;
+        }
+
+        scene.addEventListener('pointerdown', e => {
+            if(e.target.closest('.action-btn') || e.target.closest('button')) return;
+            isDragging = true;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        });
+
+        document.addEventListener('pointermove', e => {
+            if(!isDragging) return;
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+            camRotY += deltaX * 0.5;
+            camRotX -= deltaY * 0.5;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+            updateCamera();
+        });
+
+        document.addEventListener('pointerup', () => isDragging = false);
+
+        // --- Keyboard ---
+        document.addEventListener('keydown', e => {
+            const key = e.key.toUpperCase();
+            if(['U','D','L','R','F','B'].includes(key)) {
+                applyMove(e.shiftKey ? key + "'" : key);
+            }
+        });
+
+        // --- Game Systems ---
+        const timerEl = document.getElementById('timer');
+        let startTime, timerInterval;
+        
+        function startTimer() {
+            if(timerInterval) clearInterval(timerInterval);
+            startTime = Date.now();
+            timerInterval = setInterval(() => {
+                const ms = Date.now() - startTime;
+                const m = Math.floor(ms/60000).toString().padStart(2,'0');
+                const s = Math.floor((ms%60000)/1000).toString().padStart(2,'0');
+                const dec = Math.floor((ms%1000)/100);
+                timerEl.innerText = `${m}:${s}.${dec}`;
+            }, 100);
+        }
+
+        function stopTimer() { clearInterval(timerInterval); }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.opacity = 1;
+            setTimeout(() => t.style.opacity = 0, 2000);
+        }
+
+        document.getElementById('btn-shuffle').onclick = async () => {
+            scrambleHistory = [];
+            const possible = ['U','D','L','R','F','B'];
+            for(let i=0; i<20; i++) {
+                const move = possible[Math.floor(Math.random()*possible.length)];
+                const dir = Math.random() > 0.5 ? "'" : "";
+                const fullMove = move + dir;
+                scrambleHistory.push(fullMove);
+                await applyMove(fullMove, 50); // Fast animate
+            }
+            history = [];
+            document.getElementById('move-count').innerText = "0";
+            startTimer();
+            showToast('Scrambled! Timer started.');
+        };
+
+        document.getElementById('btn-solve').onclick = async () => {
+            stopTimer();
+            if(history.length === 0 && scrambleHistory.length === 0) return showToast('Already solved!');
+            showToast('Solving...');
+            
+            // Basic reverse solve
+            const toSolve = history.length > 0 ? [...history].reverse() : [...scrambleHistory].reverse();
+            
+            for(const m of toSolve) {
+                const inv = m.endsWith("'") ? m[0] : m + "'";
+                await applyMove(inv, 150);
+            }
+            
+            history = [];
+            scrambleHistory = [];
+            playSound('solve');
+            vibrate([50, 100, 50]);
+            showToast('Solved! 🎉');
+        };
+
+        document.getElementById('btn-undo').onclick = () => {
+            if(history.length === 0) return;
+            const last = history.pop();
+            const inv = last.endsWith("'") ? last[0] : last + "'";
+            applyMove(inv);
+            history.pop(); // Remove the inversion from history
+            document.getElementById('move-count').innerText = history.length;
+        };
+
+        document.getElementById('btn-reset').onclick = () => {
+            stopTimer();
+            timerEl.innerText = "00:00.0";
+            document.getElementById('move-count').innerText = "0";
+            history = []; scrambleHistory = [];
+            camRotX = -25; camRotY = 45; updateCamera();
+            initCube();
+            showToast('Cube Reset');
+        };
+
+        // --- FPS Counter ---
+        let frameCount = 0, lastFPS = performance.now();
+        const fpsEl = document.getElementById('fps');
+        function fpsLoop(now) {
+            frameCount++;
+            if (now - lastFPS >= 1000) {
+                fpsEl.innerText = frameCount;
+                frameCount = 0;
+                lastFPS = now;
+            }
+            requestAnimationFrame(fpsLoop);
+        }
+        requestAnimationFrame(fpsLoop);
+
+        // --- Init ---
+        document.getElementById('start-btn').onclick = () => {
+            document.getElementById('intro').style.display = 'none';
+            initCube();
+        };
+
+    </script>
+</body>
+</html>
